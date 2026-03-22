@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self';">
+    <title>Print Shop - Configure Order</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container { max-width: 900px; margin: 0 auto; }
+
+        .header { text-align: center; color: white; margin-bottom: 30px; }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; }
+
+        .pricing-info {
+            background: rgba(255,255,255,0.2);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            border: 3px dashed #667eea;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 30px;
+        }
+
+        .upload-area:hover    { border-color: #764ba2; background: #f8f9ff; }
+        .upload-area.dragover { background: #e8ebff; border-color: #764ba2; }
+
+        .files-container { display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px; }
+
+        .file-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .file-name { font-weight: bold; font-size: 1.1rem; color: #333; flex: 1; }
+
+        .remove-btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .remove-btn:hover { background: #ff3838; }
+
+        .file-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .option-group { display: flex; flex-direction: column; gap: 5px; }
+
+        .option-group label { font-weight: 600; color: #666; font-size: 0.9rem; }
+
+        .option-group select,
+        .option-group input {
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border 0.3s;
+        }
+
+        .option-group select:focus,
+        .option-group input:focus { outline: none; border-color: #667eea; }
+
+        .file-price { text-align: right; font-size: 1.3rem; font-weight: bold; color: #667eea; }
+
+        .summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 30px;
+            color: white;
+            margin-bottom: 20px;
+        }
+
+        .summary h2 { margin-bottom: 20px; }
+
+        .summary-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 1.1rem; }
+
+        .summary-total {
+            font-size: 1.8rem;
+            font-weight: bold;
+            border-top: 2px solid rgba(255,255,255,0.3);
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+
+        .action-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        .btn {
+            padding: 18px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary { background: #10ac84; color: white; }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #0e9770;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(16,172,132,0.3);
+        }
+
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-secondary { background: #ff6b6b; color: white; }
+        .btn-secondary:hover { background: #ee5a52; }
+
+        .hidden { display: none; }
+
+        .loading { text-align: center; padding: 20px; color: white; font-size: 1.2rem; }
+
+        @media (max-width: 768px) {
+            .file-options     { grid-template-columns: 1fr; }
+            .action-buttons   { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <!-- FIX Issue 1: SESSION_ID injected via data attribute, not raw JS string -->
+    <div id="app-data" data-session-id="{{ session_id | e }}"></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📄 Print Shop</h1>
+            <p>Upload your documents and configure print settings</p>
+        </div>
+
+        <div class="pricing-info">
+            <h3>💰 Pricing (per sheet):</h3>
+            <p>B&amp;W: ₹1.1/sheet | Color: ₹6/sheet</p>
+            <p style="margin-top:10px; font-size:0.9rem;">
+                Single-sided: 1 page = 1 sheet | Double-sided: 2 pages = 1 sheet
+            </p>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div style="font-size:3rem; margin-bottom:15px;">📤</div>
+            <h3>Drop files here or click to upload</h3>
+            <p style="color:#666; margin-top:10px;">Supports: PDF, Images, DOC, XLS, PPT</p>
+            <input type="file" id="fileInput" multiple
+                   accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                   class="hidden">
+        </div>
+
+        <div id="loadingIndicator" class="loading hidden">
+            <div style="font-size:2rem; margin-bottom:10px;">⏳</div>
+            <div>Uploading files...</div>
+        </div>
+
+        <div class="files-container" id="filesContainer"></div>
+
+        <div class="summary" id="summary" style="display:none;">
+            <h2>📋 Order Summary</h2>
+            <div class="summary-row">
+                <span>Total Pages:</span>
+                <span id="totalPages">0</span>
+            </div>
+            <div class="summary-row">
+                <span>Total Sheets:</span>
+                <span id="totalSheets">0</span>
+            </div>
+            <div class="summary-row summary-total">
+                <span>Total Price:</span>
+                <span id="totalPrice">₹0.00</span>
+            </div>
+        </div>
+
+        <div class="action-buttons">
+            <!-- FIX Issue 3: No inline onclick — listeners attached in JS -->
+            <button class="btn btn-primary" id="placeOrderBtn">💳 Place Order</button>
+            <button class="btn btn-secondary" id="clearAllBtn">🗑️ Clear All</button>
+        </div>
+    </div>
+
+    <script>
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 1: Read SESSION_ID safely from data attribute            */
+        /* ------------------------------------------------------------------ */
+        const SESSION_ID = document.getElementById('app-data').dataset.sessionId ?? '';
+        if (!SESSION_ID) {
+            alert('Invalid session. Please restart the application.');
+        }
+
+        let files = [];
+
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 3: All listeners attached from JS                        */
+        /* ------------------------------------------------------------------ */
+        document.getElementById('placeOrderBtn').addEventListener('click', placeOrder);
+        document.getElementById('clearAllBtn').addEventListener('click', clearAll);
+
+        /* ------------------------------------------------------------------ */
+        /* Upload area                                                         */
+        /* ------------------------------------------------------------------ */
+        const uploadArea       = document.getElementById('uploadArea');
+        const fileInput        = document.getElementById('fileInput');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+            fileInput.value = '';
+        });
+
+        /* ------------------------------------------------------------------ */
+        /* Load existing files                                                 */
+        /* FIX Issue 9: Check response.ok                                     */
+        /* ------------------------------------------------------------------ */
+        async function loadFiles() {
+            try {
+                const response = await fetch(`/api/order/${encodeURIComponent(SESSION_ID)}`);
+                if (!response.ok) throw new Error(`Server error ${response.status}`);
+                const data = await response.json();
+                if (data.files && data.files.length > 0) {
+                    files = data.files;
+                    renderFiles();
+                }
+            } catch (error) {
+                console.error('Error loading files:', error);
+            }
+        }
+
+        async function handleFiles(fileList) {
+            if (!fileList || fileList.length === 0) return;
+
+            const formData = new FormData();
+            for (const file of fileList) {
+                formData.append('files', file);
+            }
+            formData.append('session_id', SESSION_ID);
+
+            loadingIndicator.classList.remove('hidden');
+            uploadArea.style.opacity = '0.5';
+            uploadArea.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                // FIX Issue 9: Check response.ok before using data
+                if (!response.ok) throw new Error(`Server error ${response.status}`);
+
+                const data = await response.json();
+
+                if (data.success) {
+                    files = data.files;
+                    renderFiles();
+                    alert(`Successfully uploaded ${fileList.length} file(s)`);
+                } else {
+                    alert('Failed to upload files: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                alert('Failed to upload files. Please try again.');
+            } finally {
+                loadingIndicator.classList.add('hidden');
+                uploadArea.style.opacity = '1';
+                uploadArea.style.pointerEvents = 'auto';
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 2: renderFiles — DOM API only, no innerHTML for user data */
+        /* ------------------------------------------------------------------ */
+        function renderFiles() {
+            const container = document.getElementById('filesContainer');
+            const summary   = document.getElementById('summary');
+            container.innerHTML = '';
+
+            if (files.length === 0) {
+                summary.style.display = 'none';
+                return;
+            }
+
+            summary.style.display = 'block';
+
+            files.forEach((file, index) => {
+                const card = document.createElement('div');
+                card.className = 'file-card';
+
+                // Header
+                const header = document.createElement('div');
+                header.className = 'file-header';
+
+                const nameEl = document.createElement('div');
+                nameEl.className = 'file-name';
+                nameEl.textContent = `📄 ${file.filename}`; // Safe: textContent
+
+                const pageSpan = document.createElement('span');
+                pageSpan.style.cssText = 'color:#999; font-size:0.9rem;';
+                pageSpan.textContent = ` (${file.page_count} pages)`; // Safe
+                nameEl.appendChild(pageSpan);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'remove-btn';
+                removeBtn.textContent = '✕';
+                removeBtn.addEventListener('click', () => removeFile(index));
+
+                header.append(nameEl, removeBtn);
+
+                // Options grid (built safely, no inline handlers)
+                const options = buildFileOptions(file, index);
+
+                // Price
+                const priceEl = document.createElement('div');
+                priceEl.className = 'file-price';
+                priceEl.id = `price_${index}`;
+                priceEl.textContent = `₹${calculatePrice(file).toFixed(2)}`; // Safe
+
+                card.append(header, options, priceEl);
+                container.appendChild(card);
+            });
+
+            updateSummary();
+        }
+
+        /* Build the options grid for one file using DOM API only */
+        function buildFileOptions(file, index) {
+            const grid = document.createElement('div');
+            grid.className = 'file-options';
+
+            // ── Sides ──
+            const sidesGroup  = document.createElement('div');
+            sidesGroup.className = 'option-group';
+            const sidesLabel  = document.createElement('label');
+            sidesLabel.textContent = 'Print Mode';
+            const sidesSelect = document.createElement('select');
+            [['double','Double-sided'],['single','Single-sided']].forEach(([val, text]) => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = text;
+                opt.selected = file.print_options.sides === val;
+                sidesSelect.appendChild(opt);
+            });
+            sidesSelect.addEventListener('change', () =>
+                updateFile(index, 'sides', sidesSelect.value));
+            sidesGroup.append(sidesLabel, sidesSelect);
+
+            // ── Color ──
+            const colorGroup  = document.createElement('div');
+            colorGroup.className = 'option-group';
+            const colorLabel  = document.createElement('label');
+            colorLabel.textContent = 'Color';
+            const colorSelect = document.createElement('select');
+            [['false','B&W'],['true','Color']].forEach(([val, text]) => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = text;
+                opt.selected = String(file.print_options.color) === val;
+                colorSelect.appendChild(opt);
+            });
+            colorSelect.addEventListener('change', () =>
+                updateFile(index, 'color', colorSelect.value === 'true'));
+            colorGroup.append(colorLabel, colorSelect);
+
+            // ── Copies ──
+            const copiesGroup = document.createElement('div');
+            copiesGroup.className = 'option-group';
+            const copiesLabel = document.createElement('label');
+            copiesLabel.textContent = 'Copies';
+            const copiesInput = document.createElement('input');
+            copiesInput.type  = 'number';
+            copiesInput.min   = '1';
+            copiesInput.max   = '100';
+            copiesInput.value = file.print_options.copies;
+            copiesInput.addEventListener('change', () => {
+                // FIX Issue 8: Validate copies range; revert on invalid
+                const val = parseInt(copiesInput.value, 10);
+                if (!isNaN(val) && val >= 1 && val <= 100) {
+                    updateFile(index, 'copies', val);
+                } else {
+                    copiesInput.value = file.print_options.copies; // revert
+                }
+            });
+            copiesGroup.append(copiesLabel, copiesInput);
+
+            grid.append(sidesGroup, colorGroup, copiesGroup);
+            return grid;
+        }
+
+        function calculatePrice(file) {
+            const { page_count: pages, print_options: { copies, color, sides } } = file;
+            const sheets = sides === 'single' ? pages : Math.ceil(pages / 2);
+            const rate   = color ? 6.0 : 1.1;
+            return sheets * copies * rate;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 9: Check response.ok in updateFile                       */
+        /* ------------------------------------------------------------------ */
+        async function updateFile(index, key, value) {
+            files[index].print_options[key] = value;
+            try {
+                const r = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: SESSION_ID, files })
+                });
+                if (!r.ok) throw new Error(`Server error ${r.status}`);
+                renderFiles();
+            } catch (error) {
+                console.error('Update error:', error);
+                alert('Failed to save changes. Please try again.');
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 9: Check response.ok in removeFile                       */
+        /* ------------------------------------------------------------------ */
+        async function removeFile(index) {
+            if (!confirm('Remove this file?')) return;
+            files.splice(index, 1);
+            try {
+                const r = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: SESSION_ID, files })
+                });
+                if (!r.ok) throw new Error(`Server error ${r.status}`);
+                renderFiles();
+            } catch (error) {
+                console.error('Remove error:', error);
+                alert('Failed to remove file. Please try again.');
+            }
+        }
+
+        function updateSummary() {
+            let totalPages = 0, totalSheets = 0, totalPrice = 0;
+
+            files.forEach(file => {
+                totalPages += file.page_count;
+                const sheets = file.print_options.sides === 'single'
+                    ? file.page_count
+                    : Math.ceil(file.page_count / 2);
+                totalSheets += sheets * file.print_options.copies;
+                totalPrice  += calculatePrice(file);
+            });
+
+            // Safe: textContent only
+            document.getElementById('totalPages').textContent  = totalPages;
+            document.getElementById('totalSheets').textContent = totalSheets;
+            document.getElementById('totalPrice').textContent  = `₹${totalPrice.toFixed(2)}`;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 4: Removed localStorage printer_config from request      */
+        /* FIX Issue 5: Safe redirect via safeRedirect()                      */
+        /* FIX Issue 6: Removed pointless setTimeout(..., 0)                  */
+        /* ------------------------------------------------------------------ */
+        function safeRedirect(url) {
+            try {
+                const parsed = new URL(url, window.location.origin);
+                // Allow same-origin URLs and UPI deep links only
+                const isSafe =
+                    parsed.origin === window.location.origin ||
+                    url.startsWith('upi://');
+                if (!isSafe) throw new Error('Untrusted redirect URL');
+                window.location.href = parsed.href;
+            } catch (e) {
+                console.error('Blocked unsafe redirect:', url);
+                alert('Payment redirect failed. Please contact support.');
+            }
+        }
+
+        async function placeOrder() {
+            if (files.length === 0) {
+                alert('Please upload at least one file');
+                return;
+            }
+
+            const btn = document.getElementById('placeOrderBtn');
+            if (btn.disabled) return; // Guard against double-click
+
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Processing...';
+
+            try {
+                const response = await fetch('/api/place-order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // FIX Issue 4: Server resolves printer from session — no localStorage
+                    body: JSON.stringify({ session_id: SESSION_ID })
+                });
+
+                // FIX Issue 9: Check response.ok
+                if (!response.ok) throw new Error(`Server error ${response.status}`);
+
+                const data = await response.json();
+
+                if (data.success) {
+                    btn.innerHTML = '✅ Order Placed!';
+                    alert('Order placed successfully! Redirecting to payment...');
+                    // FIX Issue 5 & 6: Safe redirect, no setTimeout
+                    safeRedirect(data.payment_url);
+                } else {
+                    throw new Error(data.message || data.error || 'Failed to place order');
+                }
+            } catch (error) {
+                console.error('Order error:', error);
+                alert(error.message || 'Failed to place order. Please try again.');
+                btn.disabled = false;
+                btn.innerHTML = '💳 Place Order';
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* FIX Issue 7: clearAll awaited with error handling                  */
+        /* ------------------------------------------------------------------ */
+        async function clearAll() {
+            if (!confirm('Clear all files?')) return;
+            try {
+                const r = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: SESSION_ID, files: [] })
+                });
+                if (!r.ok) throw new Error(`Server error ${r.status}`);
+                files = [];
+                renderFiles();
+            } catch (e) {
+                console.error('Clear error:', e);
+                alert('Failed to clear files. Please try again.');
+            }
+        }
+
+        // Load files on page load
+        loadFiles();
+    </script>
+</body>
+</html>

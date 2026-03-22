@@ -1,0 +1,8 @@
+flask
+flask-cors
+requests
+Pillow
+PyPDF2
+python-dotenv
+gunicorn
+werkzeug
