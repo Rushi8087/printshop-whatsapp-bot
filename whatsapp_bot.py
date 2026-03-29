@@ -2566,7 +2566,8 @@ if __name__ == "__main__":
     print("="*60 + "\n")
     
     app.run(
-        port=5000,
+        host='0.0.0.0',
+        port=int(os.environ.get('PORT', 5000)),
         debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true',
         use_reloader=False
     )
