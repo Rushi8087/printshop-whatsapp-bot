@@ -27,8 +27,8 @@ ORDERS_DIR.mkdir(exist_ok=True)
 PHONEPE_CALLBACK_URL = os.getenv("PHONEPE_CALLBACK_URL")
 PHONEPE_REDIRECT_URL = os.getenv("PHONEPE_REDIRECT_URL")
 NODEJS_BOT_URL = os.getenv('NODEJS_BOT_URL', 'http://localhost:3000')
-PROJECT_ROOT = Path(__file__).parent.parent
-TEMPLATE_DIR = PROJECT_ROOT / 'frontend' / 'pages'
+# PROJECT_ROOT removed
+TEMPLATE_DIR = Path(__file__).parent / "templates"
 ORDERS_API_KEY = os.getenv('ORDERS_API_KEY')
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
 CORS(app, resources={r"/*": {"origins": [
