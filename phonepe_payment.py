@@ -26,8 +26,8 @@ PHONEPE_CLIENT_SECRET = os.getenv("PHONEPE_CLIENT_SECRET")
 PHONEPE_MERCHANT_ID   = os.getenv("PHONEPE_MERCHANT_ID")
 
 if not all([PHONEPE_CLIENT_ID, PHONEPE_CLIENT_SECRET, PHONEPE_MERCHANT_ID]):
-    raise RuntimeError("Missing required PhonePe credentials in environment variables")
-
+    import warnings
+    warnings.warn("Missing PhonePe credentials — payment features will not work")
 PHONEPE_ENV = os.getenv("PHONEPE_ENV", "sandbox")  # "sandbox" or "production"
 
 if PHONEPE_ENV == "production":
