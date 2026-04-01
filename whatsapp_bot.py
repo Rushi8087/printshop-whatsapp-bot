@@ -889,6 +889,20 @@ def home():
 
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
+import ipaddress
+
+TRUSTED_NETWORKS = [
+    ipaddress.ip_network('127.0.0.0/8'),    # localhost
+    ipaddress.ip_network('::1/128'),          # localhost IPv6
+    ipaddress.ip_network('100.64.0.0/10'),   # Railway internal network
+]
+
+def is_trusted_origin(addr):
+    try:
+        ip = ipaddress.ip_address(addr)
+        return any(ip in net for net in TRUSTED_NETWORKS)
+    except ValueError:
+        return False
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "POST":
@@ -896,8 +910,7 @@ def webhook():
         remote_addr = request.remote_addr
         sig = request.headers.get("X-Webhook-Signature", "")
 
-        if remote_addr in ('127.0.0.1', '::1', 'localhost'):
-            # Same machine — trust it, no signature needed
+        if is_trusted_origin(remote_addr):
             pass
         elif WEBHOOK_SECRET and sig:
             import hmac as hmac_lib, hashlib
@@ -2175,10 +2188,28 @@ def place_order():
         
         # Check if order already placed
         if job.get("order_placed", False):
+            existing_payment_url = job["order_data"].get("payment_url")
+            existing_payment_status = job["order_data"].get("payment_status", "pending")
+            
+            if existing_payment_status == "paid":
+                return jsonify({
+                    "success": False,
+                    "error": "Order already paid",
+                    "already_paid": True
+                })
+            
+            if existing_payment_url:
+                return jsonify({
+                    "success": True,
+                    "payment_url": existing_payment_url,
+                    "order_id": job["order_data"]["order_id"],
+                    "total_price": job["order_data"]["total_price"],
+                    "message": "Redirecting to existing payment link"
+                })
+            
             return jsonify({
-                "success": False, 
-                "error": "Order already placed",
-                "message": "This order has already been confirmed"
+                "success": False,
+                "error": "Order already placed but payment link unavailable. Please refresh."
             })
         printer_config = data.get('printer_config')
         if printer_config:
