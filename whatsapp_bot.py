@@ -2211,6 +2211,7 @@ def place_order():
                 "success": False,
                 "error": "Order already placed but payment link unavailable. Please refresh."
             })
+
         printer_config = data.get('printer_config')
         if printer_config:
             job["printer_config"] = printer_config
@@ -2263,54 +2264,19 @@ def place_order():
         job["order_data"]["order_initiated_at"] = datetime.utcnow().isoformat()
         
         order_id = job["order_data"]["order_id"]
-        
-        # PhonePe payment
-        redirect_url_with_order = f"{PHONEPE_REDIRECT_URL}?order_id={order_id}"
-        
-        payment_response = initiate_payment(
-            order_id=order_id,
-            amount=total_price,
-            user_phone=phone,
-            callback_url=PHONEPE_CALLBACK_URL,
-            redirect_url=redirect_url_with_order
-        )
+        formatted_total = format_price(total_price)
 
-        if not payment_response['success']:
-            return jsonify({
-                "success": False,
-                "error": f"Payment gateway error: {payment_response['error']}"
-            })
-        
-        payment_url = payment_response['payment_url']
-        phonepe_order_id = payment_response['order_id']
-        merchant_transaction_id = payment_response['transaction_id']
-
-        job["order_data"]["phonepe_order_id"] = phonepe_order_id
-        job["order_data"]["payment_url"] = payment_url
-        job["order_data"]["merchant_transaction_id"] = merchant_transaction_id
-        
         # Save order locally
         server_path = ORDERS_DIR / f"{order_id}.json"
         with open(server_path, 'w') as f:
             json.dump(job["order_data"], f, indent=2)
         print(f"✅ Order saved locally: {server_path}")
-        
-        # ✅ ============ SUBMIT ORDER TO BACKEND DATABASE ============
+
+        # Submit to backend
         try:
-            print(f"\n{'='*60}")
-            print(f"📤 SUBMITTING ORDER TO BACKEND DATABASE")
-            print(f"{'='*60}")
-            print(f"Order ID: {order_id}")
-            print(f"Shop ID: {job.get('shop_id')}")
-            print(f"Shop DB ID: {job.get('shop_database_id')}")
-            print(f"Customer: {phone}")
-            print(f"Total: ₹{job['order_data']['total_price']}")
-            print(f"{'='*60}\n")
-            
-            # Prepare order data for backend
             backend_order_data = {
                 "order_id": order_id,
-                "shop_id": job.get("shop_id"),  # e.g., SHOP_D2B55310
+                "shop_id": job.get("shop_id"),
                 "session_id": job["order_data"]["session_id"],
                 "user_id": phone,
                 "total_pages": job["order_data"]["total_pages"],
@@ -2321,8 +2287,6 @@ def place_order():
                 "order_data": json.dumps(job["order_data"])
             }
             
-            print(f"📦 Calling: {BACKEND_API_URL}/api/public/order/submit")
-            
             backend_response = requests.post(
                 f"{BACKEND_API_URL}/api/public/order/submit",
                 headers={"X-Internal-Key": INTERNAL_API_KEY},
@@ -2330,55 +2294,63 @@ def place_order():
                 timeout=10
             )
             
-            print(f"📊 Backend Response Status: {backend_response.status_code}")
-            
             if backend_response.ok:
-                backend_result = backend_response.json()
-                print(f"✅ ORDER SUBMITTED TO BACKEND SUCCESSFULLY!")
-                print(f"   Response: {backend_result}")
+                print(f"✅ Order submitted to backend")
             else:
                 print(f"⚠️ Backend submission failed: {backend_response.status_code}")
-                print(f"   Response: {backend_response.text}")
                 
         except Exception as submit_error:
-            print(f"⚠️ Failed to submit to backend (order still saved locally):")
-            print(f"   Error: {submit_error}")
-            import traceback
-            traceback.print_exc()
-        # ✅ ============ END OF BACKEND SUBMISSION ============
-        
-        # Send WhatsApp message
-        formatted_total = format_price(total_price)
+            print(f"⚠️ Failed to submit to backend: {submit_error}")
+
+        # ====== PAYMENT BYPASS (remove when going live) ======
+        payment_url = f"{NGROK_URL}/payment-success?order_id={order_id}"
+        job["order_data"]["payment_url"] = payment_url
+        job["order_data"]["merchant_transaction_id"] = order_id
+        job["order_data"]["payment_status"] = "paid"
+        job["order_data"]["order_status"] = "confirmed"
+        job["order_data"]["payment_completed_at"] = datetime.utcnow().isoformat()
+
+        update_order_in_backend(order_id, "paid", "confirmed", shop_id=job.get("shop_id"))
+
+        # Trigger printing
+        shop_id = job.get("shop_id")
+        printer_config = job.get("printer_config") or get_printer_config_for_shop(shop_id)
+        if printer_config:
+            for file_obj in job["order_data"]["files"]:
+                local_path = file_obj.get("local_path")
+                if local_path and os.path.exists(local_path):
+                    threading.Thread(
+                        target=send_to_printer,
+                        args=(
+                            printer_config["ip"],
+                            printer_config["port"],
+                            printer_config["protocol"],
+                            local_path
+                        ),
+                        daemon=True
+                    ).start()
+
         whatsapp_session = job.get("whatsapp_session_id")
         send_whatsapp_text(
-            phone, 
-            f"💳 *Complete Payment*\n\n"
-            f"Order Total: ₹{formatted_total}\n"
-            f"Payment Link: {payment_url}\n\n"
-            f"⏰ Link expires in 15 minutes",
+            phone,
+            f"✅ *Order #{order_id} Confirmed!*\n\n"
+            f"💰 Total: ₹{formatted_total}\n"
+            f"🖨️ Your documents are being printed...\n"
+            f"📢 You'll be notified when ready for pickup!",
             session_id=whatsapp_session
         )
-        
-        print("\n" + "="*50)
-        print(f"✅ ORDER CREATED: {order_id}")
-        print(f"   Customer: {phone[-4:].rjust(10, '*')}")  # mask phone
-        print(f"   Total: ₹{job['order_data']['total_price']}")
-        print(f"   Files: {len(job['order_data']['files'])}")
-        print("="*50 + "\n")
 
-        # Only full dump in debug mode:
-        if os.getenv('FLASK_DEBUG', 'false').lower() == 'true':
-            print(json.dumps(job["order_data"], indent=2))
-        
+        reset_session(phone)
+
         return jsonify({
             "success": True,
             "payment_url": payment_url,
             "order_id": order_id,
-            "phonepe_order_id": phonepe_order_id,
             "total_price": formatted_total,
-            "message": "Complete payment to confirm order"
+            "message": "Order confirmed (payment bypassed)"
         })
-        
+        # ====== END BYPASS ======
+
     except Exception as e:
         print(f"❌ Place order error: {e}")
         import traceback
